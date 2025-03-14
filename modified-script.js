@@ -1,14 +1,13 @@
 /*
  * Script Name: Friend Request
- * Version: v1.0.5
- * Last Updated: 2025-03-14
+ * Version: v1.0.4
+ * Last Updated: 2022-10-27
  * Author: RedAlert
  * Author URL: https://twscripts.dev/
  * Author Contact: redalert_tw (Discord)
  * Approved: N/A
  * Approved Date: 2021-09-20
  * Mod: JawJaw
- * Modified by: User (Auto-click functionality)
  */
 
 /*--------------------------------------------------------------------------------------
@@ -23,7 +22,7 @@ var scriptConfig = {
     scriptData: {
         prefix: 'friendRequest',
         name: 'Friend Request',
-        version: 'v1.0.5',
+        version: 'v1.0.4',
         author: 'RedAlert',
         authorUrl: 'https://twscripts.dev/',
         helpLink:
@@ -40,15 +39,10 @@ var scriptConfig = {
             Points: 'Points',
             Action: 'Action',
             'Add as friend': 'Add as friend',
-            'Auto-add friends': 'Auto-add friends',
-            'Auto-adding enabled': 'Auto-adding enabled',
-            'Auto-adding disabled': 'Auto-adding disabled',
             'There was an error fetching the friends list!':
                 'There was an error fetching the friends list!',
             'Redirecting...': 'Redirecting...',
             'There was an error!': 'There was an error!',
-            'Adding friends automatically...': 'Adding friends automatically...',
-            'Finished adding friends!': 'Finished adding friends!',
         },
     },
     allowedMarkets: [],
@@ -65,12 +59,6 @@ $.getScript(
         await twSDK.init(scriptConfig);
         const scriptInfo = twSDK.scriptInfo();
         const isValidScreen = twSDK.checkValidLocation('screen');
-        
-        // Global state
-        let isAutoAddingEnabled = false;
-        let isCurrentlyAdding = false;
-        let addFriendLinks = [];
-        let currentIndex = 0;
 
         if (isValidScreen) {
             try {
@@ -99,27 +87,10 @@ $.getScript(
             );
 
             const playersTable = buildPlayersTable(filteredPlayers);
-            
-            // Get all the add friend links for auto-adding
-            addFriendLinks = filteredPlayers
-                .filter(player => !player[6]) // Not existing friend
-                .map(player => {
-                    const [id] = player;
-                    const hash = game_data.csrf;
-                    return `/game.php?screen=info_player&id=${id}&action=add_friend&h=${hash}`;
-                });
 
             const content = `
-                <div class="ra-mb15">
-                    <div class="ra-mb10">
-                        <button id="btn-auto-add-friends" class="btn">
-                            ${twSDK.tt('Auto-add friends')}
-                        </button>
-                        <span id="auto-add-status" style="margin-left: 10px; font-weight: bold;"></span>
-                    </div>
-                    <div class="ra-mh400">
-                        ${playersTable}
-                    </div>
+                <div class="ra-mb15 ra-mh400">
+                    ${playersTable}
                 </div>
             `;
 
@@ -127,8 +98,6 @@ $.getScript(
                 .ra-mh400 { overflow-y: auto; max-height: 400px; }
                 .ra-existing-player td { background-color: #ffca6a !important; }
                 .btn-confirm-yes { padding: 3px; }
-                .ra-mb10 { margin-bottom: 10px; }
-                .friend-added { background-color: #c1f1c1 !important; }
             `;
 
             twSDK.renderFixedWidget(
@@ -141,84 +110,69 @@ $.getScript(
 
             // register action Handlers
             onClickAddFriend();
-            onClickAutoAddFriends();
+            
+            // Auto-add friends functionality
+            autoAddFriends();
+        }
+        
+        // Auto-add friends function
+        function autoAddFriends() {
+            console.log('Starting auto-add friends process...');
+            
+            // Get all add friend buttons that are not disabled
+            const addFriendButtons = jQuery('.btn-add-friend').not('.btn-disabled');
+            const totalButtons = addFriendButtons.length;
+            
+            console.log(`Found ${totalButtons} players to add as friends`);
+            
+            if (totalButtons === 0) {
+                console.log('No players to add as friends');
+                return;
+            }
+            
+            // Function to process each button with delay
+            function processButton(index) {
+                if (index >= totalButtons) {
+                    console.log('Finished adding all friends!');
+                    return;
+                }
+                
+                const button = addFriendButtons.eq(index);
+                const playerName = button.closest('tr').find('td:eq(1)').text().trim();
+                const addFriendLink = button.attr('data-href');
+                
+                console.log(`Adding friend #${index+1}/${totalButtons}: ${playerName}`);
+                
+                // Add the friend
+                jQuery.get(addFriendLink, function() {
+                    console.log(`Successfully added ${playerName} as friend`);
+                    
+                    // Update UI
+                    button.addClass('btn-confirm-yes');
+                    button.attr('disabled', 'disabled');
+                    
+                    // Process next button after delay
+                    setTimeout(function() {
+                        processButton(index + 1);
+                    }, twSDK.delayBetweenRequests);
+                });
+            }
+            
+            // Start the process with the first button
+            processButton(0);
         }
 
         // Action Handler: Add to friend click handler
         function onClickAddFriend() {
             jQuery('.btn-add-friend').on('click', function () {
                 const addFriendLink = jQuery(this).attr('data-href');
-                const row = jQuery(this).closest('tr');
-                
                 jQuery(this).addClass('btn-confirm-yes');
-                jQuery(this).attr('disabled', 'disabled');
-                row.addClass('friend-added');
-                
+                jQuery('.btn-add-friend').attr('disabled', 'disabled');
+                setTimeout(() => {
+                    jQuery('.btn-add-friend').removeAttr('disabled');
+                }, twSDK.delayBetweenRequests);
                 jQuery.get(addFriendLink);
             });
-        }
-        
-        // Action Handler: Auto-add friends click handler
-        function onClickAutoAddFriends() {
-            jQuery('#btn-auto-add-friends').on('click', function() {
-                if (isCurrentlyAdding) return;
-                
-                isAutoAddingEnabled = !isAutoAddingEnabled;
-                
-                if (isAutoAddingEnabled) {
-                    jQuery('#auto-add-status').text(twSDK.tt('Auto-adding enabled'));
-                    UI.SuccessMessage(twSDK.tt('Adding friends automatically...'));
-                    startAutoAddingFriends();
-                } else {
-                    jQuery('#auto-add-status').text(twSDK.tt('Auto-adding disabled'));
-                    stopAutoAddingFriends();
-                }
-            });
-        }
-        
-        // Helper: Start auto-adding friends process
-        function startAutoAddingFriends() {
-            if (!isAutoAddingEnabled || isCurrentlyAdding || currentIndex >= addFriendLinks.length) return;
-            
-            isCurrentlyAdding = true;
-            processNextFriend();
-        }
-        
-        // Helper: Stop auto-adding friends process
-        function stopAutoAddingFriends() {
-            isAutoAddingEnabled = false;
-            isCurrentlyAdding = false;
-        }
-        
-        // Helper: Process next friend in the queue
-        function processNextFriend() {
-            if (!isAutoAddingEnabled || currentIndex >= addFriendLinks.length) {
-                isCurrentlyAdding = false;
-                if (currentIndex >= addFriendLinks.length) {
-                    UI.SuccessMessage(twSDK.tt('Finished adding friends!'));
-                }
-                return;
-            }
-            
-            const link = addFriendLinks[currentIndex];
-            currentIndex++;
-            
-            // Find and update the UI
-            const btnElement = jQuery(`.btn-add-friend[data-href="${link}"]`);
-            if (btnElement.length) {
-                btnElement.addClass('btn-confirm-yes');
-                btnElement.attr('disabled', 'disabled');
-                btnElement.closest('tr').addClass('friend-added');
-            }
-            
-            // Send the request
-            jQuery.get(link);
-            
-            // Wait for the delay and process the next one
-            setTimeout(() => {
-                isCurrentlyAdding = false;
-                processNextFriend();
-            }, twSDK.delayBetweenRequests);
         }
 
         // Helper: Build the players table
